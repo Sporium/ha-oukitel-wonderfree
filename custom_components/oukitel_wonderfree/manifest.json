@@ -1,12 +1,12 @@
 {
   "domain": "oukitel_wonderfree",
   "name": "Oukitel (Wonderfree)",
-  "codeowners": ["@morozov"],
+  "codeowners": ["@Sporium"],
   "config_flow": true,
-  "documentation": "https://github.com/morozov/ha-oukitel-wonderfree",
+  "documentation": "https://github.com/Sporium/ha-oukitel-wonderfree",
   "integration_type": "device",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/morozov/ha-oukitel-wonderfree/issues",
+  "issue_tracker": "https://github.com/Sporium/ha-oukitel-wonderfree/issues",
   "requirements": [],
   "version": "0.1.0"
 }

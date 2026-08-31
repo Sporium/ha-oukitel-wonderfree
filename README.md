@@ -47,7 +47,7 @@ Entities are named `sensor.<station>_*` / `switch.<station>_*` (e.g.
 ### HACS (recommended)
 
 1. HACS → ⋮ → **Custom repositories** → add
-   `https://github.com/morozov/ha-oukitel-wonderfree`, category **Integration**.
+   `https://github.com/Sporium/ha-oukitel-wonderfree`, category **Integration**.
 2. Install **Oukitel (Wonderfree)**, then restart Home Assistant.
 3. **Settings → Devices & Services → Add Integration → Oukitel (Wonderfree)**.
 
