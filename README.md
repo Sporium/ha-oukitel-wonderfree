@@ -42,29 +42,53 @@ Entities are named `sensor.<station>_*` / `switch.<station>_*` (e.g.
 
 ---
 
-## Install
+## Setup guide
 
-### HACS (recommended)
+### 1. Install the integration
 
-1. HACS → ⋮ → **Custom repositories** → add
-   `https://github.com/Sporium/ha-oukitel-wonderfree`, category **Integration**.
-2. Install **Oukitel (Wonderfree)**, then restart Home Assistant.
-3. **Settings → Devices & Services → Add Integration → Oukitel (Wonderfree)**.
+**HACS (recommended)**
 
-### Manual
+1. HACS → ⋮ (top-right) → **Custom repositories** → add
+   `https://github.com/Sporium/ha-oukitel-wonderfree`, category **Integration** → **Add**.
+2. Open the new **Oukitel (Wonderfree)** card → **Download** → restart Home Assistant.
 
-Copy `custom_components/oukitel_wonderfree/` into your HA `config/custom_components/`
-and restart.
+**Manual**
 
-### Account & sharing
+Copy the `custom_components/oukitel_wonderfree/` folder into your HA
+`config/custom_components/` directory and restart Home Assistant.
 
-You sign in with a **Wonderfree** account. If you log in to the app with
-Google/Apple (no password), create a **second Wonderfree account** with an
-email + password and **share the station to it** in the app
-(*Share to Others* → QR, valid 30 min). Then add that account here — your main
-credentials never touch Home Assistant, and access is revocable in one tap.
+### 2. Prepare a Wonderfree account for Home Assistant
 
-The region defaults to **EU**; `us` and `cn` are in `protocol.REGIONS`.
+The integration signs in to the **Wonderfree** cloud with an **email + password**.
+
+- If you already log in to the Wonderfree app with an email and password, you
+  can use those directly — but a **dedicated second account** is safer.
+- **If you log in with Google / Apple, you have no password** — you *must* make a
+  second account. Do this:
+  1. In the Wonderfree app, open your station → **Share to Others** → a QR code
+     appears (valid 30 minutes, binds once).
+  2. On another phone (or after logging out), **register a new Wonderfree
+     account with an email + password**, then **scan that QR** to accept the
+     shared station.
+  3. Confirm the station shows up in the new account.
+
+Using a shared account means your main credentials never touch Home Assistant,
+and you can revoke access anytime from the app.
+
+### 3. Add the integration
+
+**Settings → Devices & Services → Add Integration → “Oukitel (Wonderfree)”**
+
+1. Enter the **email** and **password** of the Wonderfree account from step 2.
+2. Pick your **station** from the list.
+3. Done — a device with all sensors and switches appears.
+
+> The region defaults to **EU** (`iot-api.quecteleu.com`). For US/China accounts,
+> `us` and `cn` are defined in `protocol.REGIONS` (`custom_components/oukitel_wonderfree/protocol.py`).
+
+### 4. (optional) Add the dashboard cards
+
+See [Dashboard cards](#dashboard-cards) below.
 
 ---
 
@@ -156,6 +180,44 @@ Reconstructed from the app and verified against the live EU endpoint
 `tools/dump.py` logs in and dumps your device's property codes (its TSL) so the
 field map can be extended for other models; `tools/probe.py` flattens a
 captured response into leaf paths.
+
+---
+
+## Adding another model
+
+The sensor/switch mapping in `api.py` (`FIELD_MAP` / `SWITCH_MAP`) is written
+for the P2001E Plus. Other stations use the same protocol but may name their
+properties differently. To adapt:
+
+```bash
+python3 tools/dump.py --email you@example.com --region eu
+```
+
+This prints your station's TSL — the list of property **codes** (e.g.
+`battery_percentage`, `ac_switch`). Map the ones you need onto the canonical
+keys in `FIELD_MAP` / `SWITCH_MAP` and the entities pick them up. PRs with new
+models welcome.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| **Login rejected** on setup | Wrong email/password, or the account has no password (Google/Apple login) — make a shared email account (step 2). |
+| **No stations found** | The account you signed in with has no station bound or shared to it. Re-check the share in the app. |
+| Entities show **unavailable** briefly | Normal while the station deep-sleeps; the next poll restores them. |
+| A **switch flips back** after toggling | The station is asleep — the cloud queues the command and applies it on wake. Outputs that are actually powered toggle instantly. |
+| Effect modes show as **“FX 1…8”** | The station only reports effect numbers; name them via the card's `effect_names` option. |
+
+Enable debug logging to see the raw cloud exchange:
+
+```yaml
+# configuration.yaml
+logger:
+  logs:
+    custom_components.oukitel_wonderfree: debug
+```
 
 ---
 
