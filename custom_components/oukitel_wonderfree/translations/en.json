@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Sign in with the Wonderfree account the station is bound to. A separate account with the station shared to it keeps your main credentials out of Home Assistant.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "device": {
+        "data": {
+          "device_id": "Station"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "no_devices": "No stations found on this account"
+    },
+    "abort": {
+      "already_configured": "This station is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  }
+}
