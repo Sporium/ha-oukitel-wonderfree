@@ -113,6 +113,15 @@ class WonderfreeClient:
         return headers
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        """GET with one silent re-login: the cloud keeps a single session per
+        account, so signing in to the same account in the app kills our token."""
+        try:
+            return await self._get_once(path, params)
+        except WonderfreeAuthError:
+            await self.async_login()
+            return await self._get_once(path, params)
+
+    async def _get_once(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         try:
             async with self._session.get(
                 f"{self._base}{path}", params=params, headers=self._headers()
@@ -216,6 +225,8 @@ class WonderfreeClient:
         for attempt in (1, 2):
             try:
                 return await self._latest(device, code)
+            except WonderfreeAuthError:
+                raise
             except WonderfreeError as err:
                 if attempt == 1:
                     await asyncio.sleep(0.6)
@@ -233,6 +244,15 @@ class WonderfreeClient:
         where the key is the property CODE (e.g. "ac_switch") and booleans are JSON
         true/false.
         """
+        try:
+            await self._send_command_once(device, key, value)
+        except WonderfreeAuthError:
+            await self.async_login()
+            await self._send_command_once(device, key, value)
+
+    async def _send_command_once(
+        self, device: WonderfreeDevice, key: str, value: Any
+    ) -> None:
         code = SWITCH_MAP.get(key) or FIELD_MAP.get(key)
         if code is None:
             raise WonderfreeError(f"no property code mapped for {key!r}")
@@ -253,6 +273,8 @@ class WonderfreeClient:
                 body = await response.json(content_type=None)
         except ClientError as err:
             raise WonderfreeError(f"control failed: {err}") from err
+        if body.get("code") in (5032, 5106):
+            raise WonderfreeAuthError(f"control: code {body.get('code')} — session expired")
         if body.get("code") not in (0, 200):
             raise WonderfreeError(
                 f"control rejected: {body.get('msg')} ({body.get('code')})"
