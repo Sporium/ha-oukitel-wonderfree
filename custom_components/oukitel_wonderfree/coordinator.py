@@ -44,6 +44,14 @@ class WonderfreeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device = device
 
     async def _async_update_data(self) -> dict[str, Any]:
+        # The station only uploads around a command, so nudge it every poll;
+        # what it reports now is picked up by this read or the next one.
+        try:
+            await self.client.async_request_report(self.device)
+        except WonderfreeAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except WonderfreeError as err:
+            _LOGGER.debug("report request failed: %s", err)
         try:
             data = await self.client.async_get_status(self.device)
         except WonderfreeAuthError as err:

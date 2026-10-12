@@ -8,6 +8,7 @@ onto these entities. Cloud values arrive as strings and are coerced to float.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -80,6 +81,11 @@ SENSORS: tuple[WonderfreeSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    WonderfreeSensorDescription(
+        key="last_report", translation_key="last_report", name="Last Report",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 )
 
 
@@ -102,10 +108,12 @@ class WonderfreeSensor(WonderfreeEntity, SensorEntity):
         self.entity_description = description
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | datetime | None:
         value = self._value
         if value is None:
             return None
+        if self.entity_description.device_class == SensorDeviceClass.TIMESTAMP:
+            return datetime.fromtimestamp(int(value) / 1000, UTC)
         try:
             return float(value)
         except (TypeError, ValueError):

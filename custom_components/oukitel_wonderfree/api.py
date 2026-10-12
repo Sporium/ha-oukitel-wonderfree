@@ -60,6 +60,12 @@ SWITCH_MAP: dict[str, str] = {
     "dc_output": "dc_switch",
 }
 
+# Writing this asks the station to stream telemetry for a short while. Without
+# it the station only reports around a command (an output toggle), so the
+# cloud's last row can be hours old. The app sends it while it is open.
+REPORT_CODE = "high_frequency_reporting"
+REPORT_VALUE = 3
+
 
 # App header set that authenticated calls require.
 _APP_INFO = "[24090RA29G][Xiaomi][malachite][34]"
@@ -182,8 +188,8 @@ class WonderfreeClient:
                 )
         return list(devices.values())
 
-    async def _latest(self, device: WonderfreeDevice, code: str) -> Any:
-        """Newest stored value for one property code, or None."""
+    async def _latest(self, device: WonderfreeDevice, code: str) -> tuple[Any, int | None]:
+        """Newest stored value for one property code and its report time (ms)."""
         now = int(time.time() * 1000)
         body = await self._get(
             PATH_PROPERTY_DATA,
@@ -201,26 +207,38 @@ class WonderfreeClient:
         )
         data = body.get("data") or {}
         rows = data.get("list") if isinstance(data, dict) else data
-        return rows[0].get("propertyValue") if rows else None
+        if not rows:
+            return None, None
+        try:
+            created = int(rows[0].get("createTime"))
+        except (TypeError, ValueError):
+            created = None
+        return rows[0].get("propertyValue"), created
 
     async def async_get_status(self, device: WonderfreeDevice) -> dict[str, Any]:
         """Fetch the mapped properties as canonical keys (raw string values).
 
         Only codes that return a value are included, so an entity whose source
         is absent reads as unavailable rather than as a wrong zero.
+        ``last_report`` is the newest row time (ms) across all codes.
         """
         status: dict[str, Any] = {}
+        last_report: int | None = None
         for index, (key, code) in enumerate({**FIELD_MAP, **SWITCH_MAP}.items()):
             if index:
                 # The cloud rate-limits a long burst of reads and drops the
                 # tail, so space the per-code queries out.
                 await asyncio.sleep(0.25)
-            value = await self._latest_retry(device, key, code)
+            value, created = await self._latest_retry(device, key, code)
             if value is not None:
                 status[key] = value
+            if created and (last_report is None or created > last_report):
+                last_report = created
+        if last_report is not None:
+            status["last_report"] = last_report
         return status
 
-    async def _latest_retry(self, device, key: str, code: str) -> Any:
+    async def _latest_retry(self, device, key: str, code: str) -> tuple[Any, int | None]:
         """One property read with a single backoff retry on rate-limit."""
         for attempt in (1, 2):
             try:
@@ -232,7 +250,8 @@ class WonderfreeClient:
                     await asyncio.sleep(0.6)
                     continue
                 _LOGGER.debug("reading %s (%s) failed: %s", key, code, err)
-                return None
+                return None, None
+        return None, None
 
     async def async_send_command(
         self, device: WonderfreeDevice, key: str, value: Any
@@ -244,18 +263,25 @@ class WonderfreeClient:
         where the key is the property CODE (e.g. "ac_switch") and booleans are JSON
         true/false.
         """
-        try:
-            await self._send_command_once(device, key, value)
-        except WonderfreeAuthError:
-            await self.async_login()
-            await self._send_command_once(device, key, value)
-
-    async def _send_command_once(
-        self, device: WonderfreeDevice, key: str, value: Any
-    ) -> None:
         code = SWITCH_MAP.get(key) or FIELD_MAP.get(key)
         if code is None:
             raise WonderfreeError(f"no property code mapped for {key!r}")
+        await self._control(device, code, value)
+
+    async def async_request_report(self, device: WonderfreeDevice) -> None:
+        """Ask the station to push fresh telemetry to the cloud."""
+        await self._control(device, REPORT_CODE, REPORT_VALUE)
+
+    async def _control(self, device: WonderfreeDevice, code: str, value: Any) -> None:
+        try:
+            await self._send_command_once(device, code, value)
+        except WonderfreeAuthError:
+            await self.async_login()
+            await self._send_command_once(device, code, value)
+
+    async def _send_command_once(
+        self, device: WonderfreeDevice, code: str, value: Any
+    ) -> None:
         payload = {
             "data": json.dumps([{code: value}]),
             "deviceList": [
