@@ -58,31 +58,52 @@ Entities are named `sensor.<station>_*` / `switch.<station>_*` (e.g.
 Copy the `custom_components/oukitel_wonderfree/` folder into your HA
 `config/custom_components/` directory and restart Home Assistant.
 
-### 2. Prepare a Wonderfree account for Home Assistant
+### 2. Make a second Wonderfree account and share the station to it
 
-The integration signs in to the **Wonderfree** cloud with an **email + password**.
+You need **a separate Wonderfree account just for Home Assistant**, signed in
+with **email + password**. Don't reuse the account you use on your phone:
 
-- If you already log in to the Wonderfree app with an email and password, you
-  can use those directly — but a **dedicated second account** is safer.
-- **If you log in with Google / Apple, you have no password** — you *must* make a
-  second account. Do this:
-  1. In the Wonderfree app, open your station → **Share to Others** → a QR code
-     appears (valid 30 minutes, binds once).
-  2. On another phone (or after logging out), **register a new Wonderfree
-     account with an email + password**, then **scan that QR** to accept the
-     shared station.
-  3. Confirm the station shows up in the new account.
+- **The cloud allows one session per account.** Signing in to the same account
+  in the app logs Home Assistant out, and the other way round. (The integration
+  re-logs in by itself, but then your phone gets kicked out.)
+- **Google / Apple sign-in has no password**, so Home Assistant can't use it.
+- A shared account keeps your main login out of Home Assistant, and you can
+  revoke it from the app any time.
 
-Using a shared account means your main credentials never touch Home Assistant,
-and you can revoke access anytime from the app.
+Steps (the station stays bound to your main account; the second one gets a share):
 
-### 3. Add the integration
+1. **Register the second account.** On any phone: Wonderfree app → sign out →
+   **sign up with an email** and set a password. Sign out again.
+2. **Create the share.** Sign in with your **main** account → open the station →
+   **Share to Others** → a **QR code** appears. It is valid for
+   30 minutes and works once.
+3. **Accept it.** Sign out → sign in with the **second** account → scan the QR
+   with the app (easiest from a second phone) → accept.
+   The station now shows up in the second account.
+4. **Sign out of the second account in the app** and leave it to Home Assistant.
+   Keep using your main account on the phone as before.
 
-**Settings → Devices & Services → Add Integration → “Oukitel (Wonderfree)”**
+> If you ever **re-pair the station** (reset, new Wi-Fi) the share is dropped —
+> repeat steps 2–3. Home Assistant finds the station again on its own; reload
+> the integration afterwards.
 
-1. Enter the **email** and **password** of the Wonderfree account from step 2.
-2. Pick your **station** from the list.
-3. Done — a device with all sensors and switches appears.
+### 3. Add the integration in Home Assistant
+
+1. **Settings → Devices & services → + Add integration** → search
+   **“Oukitel (Wonderfree)”**.
+2. **Username** — the second account's **email**. **Password** — its password.
+   → **Submit**.
+   - *Invalid authentication*: wrong email/password, or you used a Google/Apple
+     account.
+   - *No stations found on this account*: the share from step 2–3 wasn't
+     accepted yet.
+3. **Station** — pick your station from the list → **Submit**.
+4. A device appears with all sensors and the AC / USB / DC switches. Entity ids
+   follow the station's name in the app, e.g. `sensor.bemo_battery_level`.
+
+**Polling interval:** **Settings → Devices & services → Oukitel (Wonderfree) →
+⚙ Configure** (default 30 s, 10–600 s). Each poll also asks the station to
+report, so shorter intervals mean fresher data.
 
 > The region defaults to **EU** (`iot-api.quecteleu.com`). For US/China accounts,
 > `us` and `cn` are defined in `protocol.REGIONS` (`custom_components/oukitel_wonderfree/protocol.py`).
@@ -270,7 +291,8 @@ models welcome.
 
 | Symptom | Fix |
 |---|---|
-| **Login rejected** on setup | Wrong email/password, or the account has no password (Google/Apple login) — make a shared email account (step 2). |
+| **Login rejected** on setup | Wrong email/password, or the account has no password (Google/Apple login) — make a second email account (step 2). |
+| Phone app keeps **logging you out** | Home Assistant and the phone use the same Wonderfree account — one session per account. Give Home Assistant its own account (step 2). |
 | **No stations found** | The account you signed in with has no station bound or shared to it. Re-check the share in the app. |
 | Entities show **unavailable** briefly | Normal while the station deep-sleeps; the next poll restores them. |
 | Values **frozen** for a long time | Check *Last Report*. If it is old, the station is off Wi-Fi or asleep with nothing to wake it; toggling an output in the app wakes it. |
