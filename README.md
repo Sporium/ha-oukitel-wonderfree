@@ -22,7 +22,8 @@ reconstructed from the app and verified against the live endpoint.
 ## Features
 
 - **Live telemetry** — battery %, total in/out power, AC charging input, DC
-  input, device temperature, remaining charge / discharge time.
+  input, device temperature, remaining charge / discharge time. Every poll asks
+  the station to report, so values stay fresh without the app open.
 - **Output control** — AC, USB and 12 V DC outputs as switches (verified to
   physically toggle the station).
 - **Config flow** — sign in with your Wonderfree account, pick the station.
@@ -34,7 +35,7 @@ reconstructed from the app and verified against the live endpoint.
 
 | Platform | Entities |
 |---|---|
-| `sensor` | Battery Level · Total In / Out Power · AC In Power · DC In Power · Device Temperature · Charge / Discharge Remaining Time · AC Charging Limit |
+| `sensor` | Battery Level · Total In / Out Power · AC In Power · DC In Power · Device Temperature · Charge / Discharge Remaining Time · AC Charging Limit · Last Report (diagnostic) |
 | `switch` | AC Output · USB Output · DC (12 V) Output |
 
 Entities are named `sensor.<station>_*` / `switch.<station>_*` (e.g.
@@ -104,8 +105,10 @@ in the dashboard editor.
 
 ### `oukitel-station-card` — station panel
 
-A station-shaped panel: a battery ring, live in/out power, remaining runtime,
-and three tactile toggles for the AC / USB / DC outputs.
+A station-shaped panel: a battery ring, live in/out power, remaining runtime
+(or time to full while charging), when the station last reported, and three
+tactile toggles for the AC / USB / DC outputs. The status dot turns amber with
+"No fresh data" when the last report is older than `stale_min` minutes.
 
 ```yaml
 type: custom:oukitel-station-card
@@ -115,10 +118,68 @@ model: P2001E Plus
 soc: sensor.bemo_battery_level
 out: sensor.bemo_total_out_power
 in: sensor.bemo_total_in_power
+last_report: sensor.bemo_last_report
+stale_min: 5
+# runtime / time to full: point these at the helpers below — the station's own
+# remaining-time values are not usable on the P2001E Plus
+discharge_min: sensor.bemo_runtime_left
+charge_min: sensor.bemo_time_to_full
+# ac_in: sensor.bemo_ac_in_power   # opt-in "Grid in" line; ~0 on P2001E Plus
 ac: switch.bemo_ac_output
 usb: switch.bemo_usb_output
 dc: switch.bemo_dc_output
 ```
+
+### Runtime estimates (recommended helpers)
+
+On the P2001E Plus the station's *Charge / Discharge Remaining Time* repeat the
+same meaningless values, and *AC In Power* stays near 0 even while charging —
+charging shows up in *Total In Power*. Note that total input also carries the
+pass-through to the outputs (at 100 % input ≈ output), so only `in − out`
+reaches the battery. These template sensors are what the card above is fed
+with; set `wh_per_pct` to your station's usable Wh per 1 % (16 measured on a
+P2001E Plus).
+
+```yaml
+# configuration.yaml
+sensor:
+  - platform: statistics          # smoothed load, 2-minute window
+    name: Bemo load 2 min
+    entity_id: sensor.bemo_total_out_power
+    state_characteristic: average_step
+    max_age: { minutes: 2 }
+    keep_last_sample: true
+
+template:
+  - sensor:
+      - name: Bemo runtime left
+        unit_of_measurement: min
+        device_class: duration
+        state: >
+          {% set wh_per_pct = 16 %}
+          {% set soc = states('sensor.bemo_battery_level') | float(0) %}
+          {% set now_w = states('sensor.bemo_total_out_power') | float(0) %}
+          {% set avg = states('sensor.bemo_load_2_min') | float(0) %}
+          {# a real step in load (>25 % and >30 W) is used at once, not averaged in #}
+          {% set p = now_w if avg <= 0 or (now_w - avg) | abs > [30, avg * 0.25] | max else avg %}
+          {% if states('sensor.bemo_total_in_power') | float(0) > 5 %}unknown
+          {% elif p > 5 %}{{ (soc * wh_per_pct / p * 60) | round(0) }}
+          {% else %}unknown{% endif %}
+      - name: Bemo time to full
+        unit_of_measurement: min
+        device_class: duration
+        state: >
+          {% set wh_per_pct = 16 %}
+          {% set soc = states('sensor.bemo_battery_level') | float(0) %}
+          {# 0.9 ≈ charger losses #}
+          {% set p = states('sensor.bemo_total_in_power') | float(0) - states('sensor.bemo_total_out_power') | float(0) %}
+          {% if soc >= 100 %}0
+          {% elif p > 10 %}{{ ((100 - soc) * wh_per_pct / (p * 0.9) * 60) | round(0) }}
+          {% else %}unknown{% endif %}
+```
+
+For "minutes until a cut-off" (e.g. an automation that switches AC off at
+20 %), use `(soc - 20)` instead of `soc` in the runtime template.
 
 ### `glow-light-card` — RGB light control
 
@@ -171,7 +232,12 @@ Reconstructed from the app and verified against the live EU endpoint
   `quec-random-url` / `app-info` headers — without the latter the gateway
   answers *"please enter token"*.
 - **Telemetry** — `getPropertyDataList` per property code, newest row first, so
-  `list[0].propertyValue` is the current value.
+  `list[0].propertyValue` is the current value and `createTime` is when the
+  station reported it (→ *Last Report*).
+- **Keeping it fresh** — the station only uploads around a command or while the
+  app is open. Each poll writes TSL property `high_frequency_reporting = 3`
+  (what the app sends) through the control endpoint, so it keeps reporting
+  every ~30 s.
 - **Control** — `batchControlDevice` with
   `{"data": "[{\"<code>\": <value>}]", "deviceList": [{productKey, deviceKey}], "type": 2}`.
   The top-level `code:200` only means well-formed — the real result is in
@@ -207,6 +273,8 @@ models welcome.
 | **Login rejected** on setup | Wrong email/password, or the account has no password (Google/Apple login) — make a shared email account (step 2). |
 | **No stations found** | The account you signed in with has no station bound or shared to it. Re-check the share in the app. |
 | Entities show **unavailable** briefly | Normal while the station deep-sleeps; the next poll restores them. |
+| Values **frozen** for a long time | Check *Last Report*. If it is old, the station is off Wi-Fi or asleep with nothing to wake it; toggling an output in the app wakes it. |
+| **AC In Power** stays 0 while charging | Expected on the P2001E Plus — use *Total In Power* for "is charging / grid present". |
 | A **switch flips back** after toggling | The station is asleep — the cloud queues the command and applies it on wake. Outputs that are actually powered toggle instantly. |
 | Effect modes show as **“FX 1…8”** | The station only reports effect numbers; name them via the card's `effect_names` option. |
 

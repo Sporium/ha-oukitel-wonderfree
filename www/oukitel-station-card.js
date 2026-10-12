@@ -14,8 +14,11 @@ const DEFAULTS = {
   soc: "sensor.bemo_battery_level",
   out: "sensor.bemo_total_out_power",
   in: "sensor.bemo_total_in_power",
-  ac_in: "sensor.bemo_ac_in_power",
+  // P2001E Plus reports ~0 here even while charging, so "Grid in" is opt-in.
+  ac_in: null,
   temp: "sensor.bemo_device_temperature",
+  last_report: "sensor.bemo_last_report",
+  stale_min: 5,
   charge_min: "sensor.bemo_charge_remaining_time",
   discharge_min: "sensor.bemo_discharge_remaining_time",
   ac: "switch.bemo_ac_output",
@@ -32,6 +35,9 @@ const num = (hass, id) => {
 const isOn = (hass, id) => !!(id && hass.states[id] && hass.states[id].state === "on");
 const avail = (hass, id) =>
   !!(id && hass.states[id] && !["unavailable", "unknown"].includes(hass.states[id].state));
+
+const fmtAgo = (sec) =>
+  sec < 60 ? `${Math.max(0, Math.round(sec))} s` : sec < 3600 ? `${Math.round(sec / 60)} min` : fmtMin(sec / 60);
 
 const fmtMin = (m) => {
   if (m == null) return "—";
@@ -97,6 +103,7 @@ class OukitelStationCard extends HTMLElement {
         .status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-dim)}
         .dot{width:9px;height:9px;border-radius:50%;background:#4b5563;box-shadow:0 0 0 0 rgba(0,0,0,0)}
         .dot.online{background:var(--accent-dc);box-shadow:0 0 10px 1px rgba(47,210,122,.7)}
+        .dot.stale{background:var(--accent-ac);box-shadow:0 0 10px 1px rgba(255,176,32,.6)}
 
         /* LCD screen */
         .lcd{position:relative;display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;
@@ -185,7 +192,7 @@ class OukitelStationCard extends HTMLElement {
           </div>
         </div>
         <div class="subline">
-          <div id="eta"></div><div id="tempTxt"></div><div id="acinTxt"></div>
+          <div id="tempTxt"></div><div id="acinTxt"></div><div id="seenTxt"></div>
         </div>
         <div class="deck" id="deck">
           ${tile("ac", "AC", ICON.socket, c.ac)}
@@ -218,16 +225,20 @@ class OukitelStationCard extends HTMLElement {
     R.getElementById("outW").textContent = out == null ? "—" : `${Math.round(out)} W`;
     R.getElementById("inW").textContent = inp == null ? "—" : `${Math.round(inp)} W`;
 
-    // online + eta + temp + ac in
-    const online = avail(h, c.soc) && (h.states[c.soc] || {}).state !== "unavailable";
-    R.getElementById("dot").className = "dot" + (online ? " online" : "");
-    R.getElementById("stTxt").textContent = online ? "Online" : "Offline";
+    // status: the cloud keeps serving the last stored values when the station
+    // stops reporting, so "online" means a recent report, not just a value.
+    const online = avail(h, c.soc);
+    const seen = avail(h, c.last_report) ? Date.parse(h.states[c.last_report].state) : NaN;
+    const ago = Number.isFinite(seen) ? (Date.now() - seen) / 1000 : null;
+    const stale = online && ago != null && ago > c.stale_min * 60;
+    R.getElementById("dot").className = "dot" + (!online ? "" : stale ? " stale" : " online");
+    R.getElementById("stTxt").textContent = !online ? "Offline" : stale ? "No fresh data" : "Online";
+    R.getElementById("seenTxt").innerHTML = ago == null ? "" : `Updated <b>${fmtAgo(ago)}</b> ago`;
 
-    const charging = (inp || 0) > 1;
+    const charging = (inp || 0) > 5;
     const eta = charging ? num(h, c.charge_min) : num(h, c.discharge_min);
     R.getElementById("rtW").textContent = eta == null ? "—" : fmtMin(eta);
     R.getElementById("rtLab").textContent = charging ? "Time to full" : "Runtime left";
-    const etaEl = R.getElementById("eta"); if (etaEl) etaEl.innerHTML = "";
     const t = num(h, c.temp);
     R.getElementById("tempTxt").innerHTML = t == null ? "" : `Temp <b>${Math.round(t)}°C</b>`;
     const acin = num(h, c.ac_in);
