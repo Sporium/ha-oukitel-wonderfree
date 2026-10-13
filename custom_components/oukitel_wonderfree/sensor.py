@@ -27,6 +27,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import STALE_AFTER
 from .coordinator import WonderfreeCoordinator
 from .entity import WonderfreeEntity
 
@@ -106,6 +107,23 @@ class WonderfreeSensor(WonderfreeEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
+
+    @property
+    def available(self) -> bool:
+        # A station that drops off the cloud leaves its last row behind; hide
+        # it once it is too old rather than show a frozen charge as current.
+        # Last Report stays up so the gap itself is visible.
+        if not super().available:
+            return False
+        if self._key == "last_report":
+            return True
+        last = (self.coordinator.data or {}).get("last_report")
+        if last is None:
+            return True
+        age = datetime.now(UTC) - datetime.fromtimestamp(int(last) / 1000, UTC)
+        interval = self.coordinator.update_interval
+        limit = max(STALE_AFTER, 3 * interval) if interval else STALE_AFTER
+        return age <= limit
 
     @property
     def native_value(self) -> float | datetime | None:

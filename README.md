@@ -295,7 +295,7 @@ models welcome.
 | Phone app keeps **logging you out** | Home Assistant and the phone use the same Wonderfree account — one session per account. Give Home Assistant its own account (step 2). |
 | **No stations found** | The account you signed in with has no station bound or shared to it. Re-check the share in the app. |
 | Entities show **unavailable** briefly | Normal while the station deep-sleeps; the next poll restores them. |
-| Values **frozen** for a long time | Check *Last Report*. If it is old, the station is off Wi-Fi or asleep with nothing to wake it; toggling an output in the app wakes it. |
+| Sensors **unavailable** / values were frozen | The station has not reported for over 10 minutes (or three poll intervals, if longer), so its last values are hidden rather than shown as current. Check *Last Report*. The station has dropped off the cloud, which can happen when it switches to battery at the start of an outage. Polling more often does not help, because commands do not reach it either. Power-cycling its Wi-Fi or opening the app usually brings it back. |
 | **AC In Power** stays 0 while charging | Expected on the P2001E Plus — use *Total In Power* for "is charging / grid present". |
 | A **switch flips back** after toggling | The station is asleep — the cloud queues the command and applies it on wake. Outputs that are actually powered toggle instantly. |
 | Effect modes show as **“FX 1…8”** | The station only reports effect numbers; name them via the card's `effect_names` option. |
